@@ -1,0 +1,61 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build-and-release:
+    name: Build binaries and publish release
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Build CLI (extract_tibia)
+        run: |
+          pyinstaller --onefile extract_tibia.py -n tibia-sniffer
+
+      - name: Build GUI (tibia_gui)
+        run: |
+          pyinstaller --onefile tibia_gui.py -n tibia-sniffer-gui
+
+      - name: Prepare artifacts
+        shell: bash
+        run: |
+          mkdir -p release
+          cp -v dist/* release/ || true
+          # Add helpful extras
+          cp -v README.md release/ || true
+          cp -v requirements.txt release/ || true
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: tibia-sniffer-${{ runner.os }}
+          path: release/*
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/v')
+        with:
+          files: |
+            release/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
