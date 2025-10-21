@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.1] - 2025-10-21
+- Add GitHub Actions release workflow to build CLI and GUI binaries on tag push
+- Add VERSION and update README with release and usage docs
+- GUI: mapping status label, Export JSON and Clear session buttons, structured events storage
+
 ## [0.1.0] - 2025-10-21
 - Initial public release
 - CLI sniffer `extract_tibia.py` with Tibia framing, optional XTEA, opcode/byte extraction, JSON/CSV output
