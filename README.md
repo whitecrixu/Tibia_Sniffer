@@ -30,6 +30,23 @@ python3 extract_tibia.py --pcap capture.pcap
 sudo python3 extract_tibia.py --iface eth0
 ```
 
+Profiles for Tibia ports
+
+- login (port 7172, plaintext frame):
+
+```bash
+python3 extract_tibia.py --iface <iface> --profile login --tibia-frame --verbose
+```
+
+- game (port 7171, XTEA):
+
+```bash
+python3 extract_tibia.py --iface <iface> --profile game --tibia-frame --xtea-key 00112233445566778899AABBCCDDEEFF --verbose
+
+# or let the sniffer attempt auto-extraction (Linux root only)
+python3 extract_tibia.py --iface <iface> --profile game --verbose
+```
+
 GUI usage
 
 - Start the GUI:
@@ -49,8 +66,14 @@ Capturing packets requires elevated privileges on Linux. Options:
 ```bash
 sudo setcap cap_net_raw,cap_net_admin+eip $(which python3)
 ```
+If you use a virtualenv, run `which python3` inside the venv and apply setcap to that path. If your venv python is a symlink to `/usr/bin/python3.XX`, apply setcap to the resolved binary (e.g., `/usr/bin/python3.12`).
 
-If you use a virtualenv, run `which python3` inside the venv and apply setcap to that path.
+Windows capture requirements
+
+- Install Npcap (https://nmap.org/npcap/) with “WinPcap API-compatible mode”.
+- Use an elevated PowerShell (Run as Administrator) if capture fails.
+- You can also use the prebuilt `.exe` releases for zero Python setup.
+- Auto XTEA extraction is not available on Windows; provide the key manually.
 
 Alternative workflow without privileges
 
@@ -107,7 +130,9 @@ Next steps
 
 Release (prebuilt binaries)
 
-- Download the latest release from GitHub Releases (assets named like `tibia-sniffer-<OS>` and `tibia-sniffer-gui-<OS>`)
+- Download the latest release from GitHub Releases:
+	- Linux: `tibia-sniffer` and `tibia-sniffer-gui`
+	- Windows: `tibia-sniffer.exe` and `tibia-sniffer-gui.exe`
 - On Linux, make the binary executable:
 
 ```bash
@@ -117,7 +142,7 @@ chmod +x tibia-sniffer tibia-sniffer-gui
 - Run CLI:
 
 ```bash
-./tibia-sniffer --iface <iface> --port 7172 --tibia-frame --verbose
+./tibia-sniffer --iface <iface> --profile login --tibia-frame --verbose
 ```
 
 - Run GUI:

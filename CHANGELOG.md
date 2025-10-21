@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.2.0] - 2025-10-21
+- CLI profiles for `login`/`game`, automatic Tibia frame activation, and guidance when XTEA is missing
+- Auto XTEA extraction helper for Linux (CLI + GUI), with GUI status logging and key auto-fill
+- Platform-specific capture hints (Linux setcap guidance, Windows Npcap requirement)
+- Mark `python-ptrace` as Linux-only in requirements
+
 ## [0.1.1] - 2025-10-21
 - Add GitHub Actions release workflow to build CLI and GUI binaries on tag push
 - Add VERSION and update README with release and usage docs

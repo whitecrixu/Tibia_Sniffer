@@ -33,6 +33,10 @@ def _make_args(iface, port, op_offset, byte_offset, output, outfile, tibia_frame
     a.tibia_frame = tibia_frame
     a.xtea_key_bytes = xtea_key_bytes
     a.ports = ports_list
+    a.auto_xtea = True
+    a.tibia_proc = 'Tibia'
+    a._warned_missing_xtea = False
+    a._auto_tibia_frame = False
     return a
 
 
@@ -440,6 +444,19 @@ class SnifferGUI:
             ports_list=ports_list,
             verbose=bool(self.verbose.get()),
         )
+        args.tibia_proc = (self.proc_name.get() or 'Tibia').strip() or 'Tibia'
+        if args.xtea_key_bytes is None and args.auto_xtea and args.tibia_frame:
+            effective_ports = args.ports or [args.port]
+            if any(p == 7171 for p in effective_ports):
+                key, msg = et.auto_extract_xtea(args.tibia_proc, verbose=bool(self.verbose.get()))
+                if msg:
+                    self._append_log(f'[auto-xtea] {msg}')
+                if key:
+                    args.xtea_key_bytes = key
+                    hexkey = key.hex().upper()
+                    self.xtea_key.set(hexkey)
+                    self._append_log(f'[auto-xtea] Auto key selected: {hexkey}')
+                args.auto_xtea = False
         # attach mapping if loaded
         if self._opcode_map is not None:
             args.opcode_map = self._opcode_map
@@ -459,6 +476,16 @@ class SnifferGUI:
                 except Exception as ex:
                     print(f"[GUI] on_evt_obj queue error: {ex}")
             self._log_queue.put("[DEBUG] Sniffer thread started, waiting for packets...")
+            # Platform hints
+            try:
+                import platform
+                plat = platform.system()
+                if plat == 'Linux':
+                    self._log_queue.put('[hint] Linux: if you see no packets, run GUI with sudo or setcap on venv python')
+                elif plat == 'Windows':
+                    self._log_queue.put('[hint] Windows: install Npcap (https://nmap.org/npcap/) for capture support')
+            except Exception:
+                pass
             try:
                 et.live_sniff(args, stop_event=self._stop_event, on_event=on_evt, on_event_obj=on_evt_obj)
             except Exception as e:

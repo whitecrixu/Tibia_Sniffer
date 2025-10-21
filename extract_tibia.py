@@ -11,6 +11,7 @@ Both offsets and lengths are configurable.
 Includes --test mode which generates a small pcap and demonstrates extraction.
 """
 import argparse
+import platform
 import os
 import re
 import json
@@ -367,6 +368,22 @@ def process_packet(pkt, args, writer_state=None, on_event=None, on_event_obj=Non
     dport = pkt[TCP].dport
 
     svc = derive_service_from_ports(sport, dport)
+
+    # Warn once if we are seeing game traffic without XTEA key
+    if getattr(args, 'tibia_frame', False) and getattr(args, 'xtea_key_bytes', None) is None:
+        ports_interest = getattr(args, 'ports', None) or [getattr(args, 'port', None)]
+        try:
+            if not getattr(args, '_warned_missing_xtea', False) and 7171 in ports_interest:
+                msg = '[warn] Observing Tibia game traffic (7171) without XTEA key; opcode/byte will be raw/incorrect until a key is provided.'
+                print(msg)
+                if on_event:
+                    try:
+                        on_event(msg)
+                    except Exception:
+                        pass
+                args._warned_missing_xtea = True
+        except Exception:
+            pass
 
     # Helper to output one parsed frame
     def emit_one(res):
@@ -823,6 +840,52 @@ def make_test_pcap(path):
     wrpcap(path, [p1, p2])
 
 
+def auto_extract_xtea(proc_hint='Tibia', max_bytes=64*1024*1024, verbose=False):
+    """Best-effort attempt to extract XTEA key from a running Tibia process."""
+    if platform.system() != 'Linux':
+        return None, 'Auto XTEA extraction is available only on Linux.'
+    try:
+        import xtea_mem_extractor as xme
+    except Exception as exc:
+        return None, f'Auto XTEA unavailable: {exc}'
+
+    pid = None
+    try:
+        hint = (proc_hint or 'Tibia').strip()
+        if hint.isdigit():
+            pid = int(hint)
+        else:
+            pid = xme._find_pid_by_name(hint)
+    except Exception as exc:
+        return None, f'Auto XTEA process lookup failed: {exc}'
+
+    if not pid:
+        return None, f'Process matching {proc_hint!r} not found.'
+
+    if verbose:
+        print(f'[auto-xtea] Attaching to PID {pid}')
+
+    try:
+        xme._ptrace(xme.PTRACE_ATTACH, pid)
+    except Exception as exc:
+        return None, f'ptrace attach failed (run as root? ptrace_scope=0?): {exc}'
+
+    try:
+        if not xme._wait_stopped(pid):
+            return None, 'Process did not stop after ptrace attach.'
+        counts = xme._scan_candidates(pid, max_total_bytes=max_bytes)
+        if not counts:
+            return None, 'Auto XTEA found no candidates.'
+        best_key, best_cnt = counts.most_common(1)[0]
+        if verbose:
+            print(f'[auto-xtea] Best candidate count={best_cnt}')
+        return best_key, f'Auto XTEA candidate (count={best_cnt}) from PID {pid}'
+    finally:
+        try:
+            xme._ptrace(xme.PTRACE_DETACH, pid)
+        except Exception:
+            pass
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description='Tibia OPCODE + Byte extractor')
     group = parser.add_mutually_exclusive_group(required=False)
@@ -836,6 +899,7 @@ def main(argv=None):
     parser.add_argument('--byte-len', dest='byte_len', type=int, default=1, help='length in bytes for the other value (default 1)')
     parser.add_argument('--tibia-frame', action='store_true', help='parse Tibia framed payload: [len:2][opcode:1][payload]; overrides offsets')
     parser.add_argument('--xtea-key', dest='xtea_key', help='16-byte XTEA key as hex (32 hex chars) to decrypt game packets (used with --tibia-frame)')
+    parser.add_argument('--profile', choices=['auto','login','game'], default='auto', help='Convenience profiles: login=7172 + tibia-frame, game=7171 + tibia-frame (+XTEA if provided). auto: infer 7172->login, 7171->game.')
     parser.add_argument('--count', type=int, default=None, help='number of live packets to capture (default infinite)')
     parser.add_argument('--hex', action='store_true', help='display values in hex only')
     parser.add_argument('--verbose', action='store_true', help='verbose output')
@@ -845,12 +909,29 @@ def main(argv=None):
     parser.add_argument('--iface-type', choices=['any','wlan','eth'], default='any', help='filter interfaces by type when listing or selecting')
     parser.add_argument('--select', action='store_true', help='interactive prompt to select an interface from the listed set')
     parser.add_argument('--test', action='store_true', help='run a self-test (generates a temporary pcap and parses it)')
+    parser.add_argument('--auto-xtea', dest='auto_xtea', action='store_true', help='Force auto XTEA extraction from Tibia process (Linux root only)')
+    parser.add_argument('--no-auto-xtea', dest='auto_xtea', action='store_false', help='Disable auto XTEA extraction')
+    parser.set_defaults(auto_xtea=True)
+    parser.add_argument('--tibia-proc', default='Tibia', help='Process name or PID for auto XTEA detection (default: Tibia)')
     # Mapping controls
     parser.add_argument('--mapping-json', help='Load opcode mapping from JSON file (format: { "<int or 0xhex>": "Name", ... })')
     parser.add_argument('--mapping-source', help='Path to crystalserver root to auto-extract opcode mapping from ProtocolGame (client->server)')
     parser.add_argument('--dump-mapping', help='If provided with --mapping-source, dump extracted mapping to this JSON path')
 
     args = parser.parse_args(argv)
+
+    # Apply profile defaults
+    if args.profile and args.profile != 'auto':
+        if args.profile == 'login':
+            args.port = 7172
+            args.tibia_frame = True
+            if args.verbose:
+                print('[profile] login: port=7172, tibia-frame=ON')
+        elif args.profile == 'game':
+            args.port = 7171
+            args.tibia_frame = True
+            if args.verbose:
+                print('[profile] game: port=7171, tibia-frame=ON (XTEA recommended)')
 
     # Parse multi-ports
     if args.ports:
@@ -874,6 +955,10 @@ def main(argv=None):
         except Exception:
             print('Invalid --xtea-key: provide hex like 00112233445566778899AABBCCDDEEFF')
             return
+
+    # Track whether we warned about missing XTEA / auto-frame
+    args._warned_missing_xtea = False
+    args._auto_tibia_frame = False
 
     # Load opcode mapping priority: explicit JSON -> crystalserver parse -> default enhanced_mapping.json
     args.opcode_map = None
@@ -1002,6 +1087,22 @@ def main(argv=None):
     if args.pcap:
         read_pcap(args.pcap, args)
     elif args.iface:
+        ports_info = args.ports if args.ports else [args.port]
+        if not args.tibia_frame and any(p in (7171, 7172) for p in ports_info):
+            args.tibia_frame = True
+            args._auto_tibia_frame = True
+        # Guidance for common Tibia ports
+        ports_info = args.ports if args.ports else [args.port]
+        if args.verbose or getattr(args, '_auto_tibia_frame', False):
+            if any(p == 7172 for p in ports_info):
+                print('[hint] login traffic detected (port 7172); Tibia frame parsing enabled automatically.')
+            if any(p == 7171 for p in ports_info):
+                if args.xtea_key_bytes is None:
+                    print('[hint] game traffic (port 7171) is XTEA-encrypted. Provide --xtea-key <32hex> or use GUI scan to decrypt; displaying raw bytes otherwise.')
+                else:
+                    print('[hint] game traffic (port 7171) with provided XTEA key.')
+        if getattr(args, '_auto_tibia_frame', False) and args.verbose:
+            print('[hint] Tibia frame parsing was auto-enabled for known Tibia ports.')
         # Attempt to load mapping in CLI path as well
         if getattr(args, 'opcode_map', None) is None:
             args.opcode_map = _load_default_opcode_mapping(verbose=args.verbose)
