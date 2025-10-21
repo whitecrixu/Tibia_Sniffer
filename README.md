@@ -104,3 +104,36 @@ Next steps
 - Add support for encrypted/compressed payloads (if Tibia uses obfuscation)
 - Add JSON/CSV output option
 - Add more tests and CI integration
+
+Release (prebuilt binaries)
+
+- Download the latest release from GitHub Releases (assets named like `tibia-sniffer-<OS>` and `tibia-sniffer-gui-<OS>`)
+- On Linux, make the binary executable:
+
+```bash
+chmod +x tibia-sniffer tibia-sniffer-gui
+```
+
+- Run CLI:
+
+```bash
+./tibia-sniffer --iface <iface> --port 7172 --tibia-frame --verbose
+```
+
+- Run GUI:
+
+```bash
+./tibia-sniffer-gui
+```
+
+Creating a new release (maintainers)
+
+1) Update `VERSION` and `CHANGELOG.md` as needed
+2) Create a tag and push:
+
+```bash
+git tag v$(cat VERSION)
+git push origin v$(cat VERSION)
+```
+
+GitHub Actions will build and attach binaries to the tagged release automatically.
