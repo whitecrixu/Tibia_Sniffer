@@ -1,0 +1,10 @@
+scapy>=2.5.0
+netifaces>=0.11.0
+
+# For process inspection and XTEA key scanning (GUI helpers)
+psutil>=5.9
+python-ptrace>=0.9.8
+
+# Optional: Wireshark/TShark integration via PyShark (requires system tshark)
+pyshark>=0.6.0
+/home/crixu/Tibia_Sniffer/.venv/bin/python /home/crixu/Tibia_Sniffer/extract_tibia.py --iface lo --port 7172 --tibia-frame --xtea-key <TWÓJ_32_HEX> --verbose
